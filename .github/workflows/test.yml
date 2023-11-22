@@ -3,9 +3,7 @@ name: Test
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    branches: [master]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,4 +17,3 @@ jobs:
 
     - name: Test
       run: go test -v ./...
-
