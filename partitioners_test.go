@@ -21,6 +21,16 @@ func fnv32a(b []byte) uint32 {
 	return h.Sum32()
 }
 
+func SaramaCompatHasher(hashFn func([]byte) uint32) kgo.PartitionerHasher {
+	return func(key []byte, n int) int {
+		p := int32(hashFn(key)) % int32(n)
+		if p < 0 {
+			p = -p
+		}
+		return int(p)
+	}
+}
+
 func TestPartitioner(t *testing.T) {
 	// this is the default in Sarama:
 	// https://github.com/IBM/sarama/blob/d09a287f30bdf73b1c9f53c3f7a4b2ecc2bd41d3/config.go#L529C27-L529C45
@@ -33,6 +43,9 @@ func TestPartitioner(t *testing.T) {
 	// https://github.com/twmb/franz-go/blob/a6d10d4ad93528f7c2e8ed735a40bb1bd8a03c8a/pkg/kgo/partitioner.go#L509
 	franzP := kgo.StickyKeyPartitioner(kgo.SaramaHasher(fnv32a)).ForTopic("anytopic")
 
+	// With this modified hasher it works as expected.
+	franzPmod := kgo.StickyKeyPartitioner(SaramaCompatHasher(fnv32a)).ForTopic("anytopic")
+
 	for n := 2; n < 25; n++ {
 		for i := 0; i < 100; i++ {
 			key := uuid.NewString()
@@ -42,6 +55,12 @@ func TestPartitioner(t *testing.T) {
 			}
 			pseg := segmentioP.Balance(kafka.Message{Key: []byte(key)}, partitions...)
 			pfrz := franzP.Partition(
+				&kgo.Record{
+					Key: []byte(key),
+				},
+				n,
+			)
+			pfrzmod := franzPmod.Partition(
 				&kgo.Record{
 					Key: []byte(key),
 				},
@@ -59,6 +78,11 @@ func TestPartitioner(t *testing.T) {
 			// But franz gives different partition number.
 			if int(psar) != pfrz {
 				t.Errorf("key %q, partitions %d, sarama %d, franz %d", key, n, psar, pfrz)
+			}
+
+			// With the modified hasher franz gives the same partition number.
+			if int(psar) != pfrzmod {
+				t.Errorf("key %q, partitions %d, sarama %d, franz (modified) %d", key, n, psar, pfrzmod)
 			}
 		}
 	}
